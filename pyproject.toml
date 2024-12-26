@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kblite"
-version = "0.1.0"
+version = "0.0.1"
 description = "A SQLite-based interface for Knowledge Bases"
 readme = "README.md"
 requires-python = ">=3.7"
