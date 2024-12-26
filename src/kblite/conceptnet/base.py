@@ -15,7 +15,7 @@ __all__ = [
     "ConceptNetLoader",
 ]
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ConceptNetLoaderConfig(KnowledgeLoaderConfig):

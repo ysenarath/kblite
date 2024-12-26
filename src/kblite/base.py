@@ -5,16 +5,19 @@ import shutil
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, Iterable, Set, Union
+from typing import Generator, Iterable, Set
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from tqdm import auto as tqdm
+from huggingface_hub import snapshot_download
 
 from .vocab import Vocab
 from .loader import KnowledgeLoader
-from .models import Base, Edge, Node
-from .triplet import NodeIndex, TripletStore
+from .models import Edge, Node
+from .triplet import TripletStore
+
+# from .triplet import NodeIndex, TripletStore
 
 __all__ = [
     "KnowledgeBase",
@@ -23,55 +26,41 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def get_cache_dir(base_dir: Union[Path, str, None]) -> Path:
-    base_dir = Path(base_dir)
-    base_dir.mkdir(parents=True, exist_ok=True)
-    return base_dir.absolute().expanduser()
-
-
-def get_kb_path(
-    name_or_path: str | Path,
-    cache_dir: str | Path | None = None,
-    create: bool = False,
-    verbose: int = 1,
-) -> Path:
-    kb_cache_dir = get_cache_dir(cache_dir) / "kb"
-    input_path = Path(name_or_path)
-    input_path = input_path.with_name(f"{input_path.name}.db")
-    if not input_path.exists() and isinstance(name_or_path, str):
-        input_path = kb_cache_dir / f"{name_or_path}.db"
-        # create the database if it does not exist
-        if not input_path.exists() and create:
-            input_engine = create_engine(f"sqlite:///{input_path}", echo=verbose > 2)
-            Base.metadata.create_all(input_engine)
-    elif input_path.exists():
-        name_or_path = os.path.join("default", input_path.stem)
-    else:
-        raise ValueError("invalid path")
-    return kb_cache_dir / f"{name_or_path}.db"
-
-
 class KnowledgeBase:
     def __init__(
         self,
         database_name_or_path: str | Path,
-        create: bool = False,
-        cache_dir: Union[Path, str, None] = None,
+        file_name: str = "conceptnet-v5.7.0",
         verbose: int = 1,
     ):
         # output path with checksum
-        self.path = get_kb_path(
-            database_name_or_path,
-            cache_dir=cache_dir,
-            create=create,
-            verbose=verbose,
-        )
+        self.path = Path(database_name_or_path) / "data" / f"{file_name}.db"
         self.engine = create_engine(f"sqlite:///{self.path}", echo=verbose > 2)
         with self.session() as session:
             session.execute(text("PRAGMA journal_mode=WAL"))
         # create index if not exists
         self.index = self._get_or_create_index()
-        self.node_index = NodeIndex(self.path.with_suffix(".node.db"))
+        # self.node_index = NodeIndex(self.path.with_suffix(".node.db"))
+
+    def _get_or_create_index(self) -> TripletStore:
+        # populate index if not frozen (frozen means index is up-to-date)
+        index_path = str(self.path.with_suffix("")) + "-index"
+        index = TripletStore(index_path)
+        if index.frozen:
+            return index
+        if os.path.exists(index_path):
+            print(f"Removing existing index at {index_path}")
+            shutil.rmtree(index_path, ignore_errors=True)
+        index.close()
+        del index
+        index = TripletStore(index_path)
+        with self.session() as session:
+            n_total = session.query(Edge).count()
+            query = session.query(Edge.start_id, Edge.rel_id, Edge.end_id)
+            pbar = tqdm.tqdm(query.yield_per(int(1e5)), total=n_total, desc="Indexing")
+            index.add(pbar)
+        index.frozen = True
+        return index
 
     def get_node_ids_by_label(self, label: str) -> Iterable[str]:
         return self.label2index.get(label, set())
@@ -88,20 +77,6 @@ class KnowledgeBase:
     def num_edges(self) -> int:
         with self.session() as session:
             return session.query(Edge).count()
-
-    def _get_or_create_index(self) -> TripletStore:
-        # populate index if not frozen (frozen means index is up-to-date)
-        index_path = str(self.path.with_suffix("")) + "-index"
-        index = TripletStore(index_path)
-        if index.frozen:
-            return index
-        with self.session() as session:
-            n_total = session.query(Edge).count()
-            query = session.query(Edge.start_id, Edge.rel_id, Edge.end_id)
-            pbar = tqdm.tqdm(query.yield_per(int(1e5)), total=n_total, desc="Indexing")
-            index.add(pbar)
-        index.frozen = True
-        return index
 
     @contextmanager
     def session(self) -> Generator[Session, None, None]:
@@ -190,3 +165,12 @@ class KnowledgeBase:
             except Exception as e:
                 session.rollback()
                 raise e
+
+    @staticmethod
+    def from_repository(repo_id: str) -> KnowledgeBase:
+        """Download and load a pre-trained index"""
+        snapshot_path = snapshot_download(
+            repo_id=repo_id,
+            repo_type="dataset",
+        )
+        return KnowledgeBase(snapshot_path)
