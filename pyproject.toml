@@ -35,6 +35,7 @@ dependencies = [
     "orjson",
     "wordfreq",
     "rdflib",
+    "polars",
 ]
 
 [project.urls]
