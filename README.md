@@ -1,17 +1,17 @@
-# conceptnet-sqlite
+# kblite
 
-A SQLite-based interface for ConceptNet that provides efficient access to the ConceptNet knowledge base.
+A SQLite-based interface for Knowledge Bases that provides efficient access to the ConceptNet knowledge base.
 
 ## Installation
 
 ```bash
-pip install conceptnet-sqlite
+pip install kblite
 ```
 
 ## Usage
 
 ```python
-from conceptnet_sqlite import KnowledgeBase
+from kblite import KnowledgeBase
 
 # Initialize from HuggingFace dataset
 kb = KnowledgeBase.from_repository("ysenarath/conceptnet-sqlite")
