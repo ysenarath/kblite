@@ -89,10 +89,12 @@ class KnowledgeBase:
 
     def iternodes(self, verbose: bool = False) -> Iterable[Node]:
         with self.session() as session:
-            query = session.query(Node)
-            pbar = tqdm.tqdm(query.all(), desc="Iterating Nodes", disable=not verbose)
-            for node in pbar:
-                yield node
+            query = session.query(Node).yield_per(1000)
+            total = session.query(Node).count()
+            pbar = tqdm.tqdm(
+                query, desc="Iterating Nodes", disable=not verbose, total=total
+            )
+            yield from pbar
 
     def get_vocab(self) -> Vocab:
         with self.session() as session:
