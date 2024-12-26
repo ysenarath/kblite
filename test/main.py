@@ -1,18 +1,11 @@
-from kblite.base import KnowledgeBase
+from kblite import KnowledgeBase
 
+# Initialize from HuggingFace dataset
 kb = KnowledgeBase.from_repository("ysenarath/conceptnet-sqlite")
 
-# print(f"Number of edges: {kb.num_edges()}")
-
-# vocab = kb.get_vocab()
-
-# for item in vocab:
-#     print(item)
-#     break
-
-
-# print(kb.index.find_by_object("apple"))
-
+# Query nodes
 for node in kb.iternodes():
     print(node)
-    break
+
+# Get vocabulary
+vocab = kb.get_vocab()
