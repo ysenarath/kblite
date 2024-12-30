@@ -13,8 +13,8 @@ __all__ = [
 
 class KnowledgeBaseLoaderConfig(BaseConfig, dispatch="identifier"):
     identifier: ClassVar[str]
-    namespace: str = "https://octology.github.io/"
-    version: Optional[str] = None
+    version: str = "0.0.1"
+    namespace: str = "https://example.com/"
     verbose: bool | int = 1
 
 
