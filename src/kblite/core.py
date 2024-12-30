@@ -32,11 +32,15 @@ class KnowledgeBase(BaseModule):
         self.create_all()
         loader = AutoKnowledgeBaseLoader(self.config.loader)
         with self.session() as session:
+            to_commit = False
             for i, row in enumerate(loader.iterrows()):
                 Edge.from_dict(row)
-                if i % 1000 == 0:
+                to_commit = True
+                if i % 1000 == 0 and to_commit:
                     session.commit()
-            session.commit()
+                    to_commit = False
+            if to_commit:
+                session.commit()
 
     def create_all(self):
         Base.metadata.create_all(self.bind)
