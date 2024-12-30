@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, Iterable, Optional
+from typing import Any, ClassVar, Dict, Iterable, Optional, Tuple
 
 from nightjar import AutoModule, BaseConfig, BaseModule
 
@@ -26,6 +26,10 @@ class AutoKnowledgeBaseLoader(AutoModule):
 class KnowledgeBaseLoader(BaseModule):
     config: KnowledgeBaseLoaderConfig
 
-    def iterrows(self) -> Iterable[Dict[str, Any]]:
+    def count(self) -> int:
+        """Return the number of edges."""
+        raise NotImplementedError
+
+    def iterrows(self) -> Iterable[Tuple[int, Dict[str, Any]]]:
         """Iterate over edges."""
         raise NotImplementedError

@@ -5,7 +5,7 @@ import json
 import logging
 from dataclasses import field
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Generator, Iterable, Optional
+from typing import Any, ClassVar, Dict, Generator, Iterable, Optional, Tuple
 
 import orjson
 import requests
@@ -140,7 +140,7 @@ class ConceptNetLoader(KnowledgeBaseLoader):
                 logger.info("Writing to %s complete.", self.jsonl_gz_path)
         return n_rows_csv
 
-    def iterrows(self) -> Iterable[Dict[str, Any]]:
+    def iterrows(self) -> Iterable[Tuple[int, Dict[str, Any]]]:
         """Iterate over edges."""
         self.download()
         n_rows = self.write_to_jsonl()
@@ -150,8 +150,12 @@ class ConceptNetLoader(KnowledgeBaseLoader):
             disable=self.config.verbose < 1,
         )
         with gzip.open(self.jsonl_gz_path, "rt") as f:
-            for line in f:
-                yield orjson.loads(line)
+            for i, line in enumerate(f):
+                yield i, orjson.loads(line)
                 if pbar:
                     pbar.update(1)
         pbar.close()
+
+    def count(self) -> int:
+        with gzip.open(self.jsonl_gz_path, "rt") as f:
+            return sum(1 for _ in f)
