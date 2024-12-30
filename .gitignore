@@ -172,3 +172,4 @@ cython_debug/
 /resources
 /_scratch
 .DS_Store
+/.ruff_cache
