@@ -32,8 +32,8 @@ def get_download_urls() -> Dict[str, str]:
 
 class ConceptNetLoaderConfig(KnowledgeBaseLoaderConfig):
     identifier: ClassVar[str] = "conceptnet"
-    namespace: str = "http://conceptnet.io/"
     version: str = "5.7.0"
+    namespace: str = "http://conceptnet.io/"
     download_urls: Dict[str, str] = field(default_factory=get_download_urls)
     force: bool = False
 
