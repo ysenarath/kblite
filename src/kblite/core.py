@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
+from huggingface_hub import snapshot_download
 from nightjar import BaseConfig, BaseModule
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from kblite.base import SessionContext, var
 from kblite.config import config as kblite_config
 from kblite.loader import AutoKnowledgeBaseLoader, KnowledgeBaseLoaderConfig
-from kblite.models import Base, Edge
+from kblite.models import Base, Edge, apply_prefix
 
 
 class KnowledgeBaseConfig(BaseConfig):
@@ -22,11 +23,10 @@ class KnowledgeBase(BaseModule):
     config: KnowledgeBaseConfig
 
     def __post_init__(self):
-        path = (
-            Path(kblite_config.resources_dir)
-            / self.config.loader.identifier
-            / "database.sqlite"
-        )
+        resources_dir = Path(kblite_config.resources_dir)
+        identifier = self.config.loader.identifier
+        version = self.config.loader.version
+        path = resources_dir / identifier / f"database-v{version}.sqlite"
         url = f"sqlite:///{path}"
         self.bind = create_engine(url)
         self.create_all()
