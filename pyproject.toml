@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kblite"
-version = "0.0.1"
+dynamic = ["version"]
 description = "A SQLite-based interface for Knowledge Bases"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -43,5 +43,22 @@ Homepage = "https://github.com/ysenarath/kblite"
 Repository = "https://github.com/ysenarath/kblite"
 Dataset = "https://huggingface.co/datasets/ysenarath/conceptnet-sqlite"
 
+
+[tool.hatch.version]
+path = "src/kblite/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/kblite"]
+
+[tool.ruff]
+# Same as Black.
+line-length = 88
+indent-width = 4
+target-version = "py39"
+
+[tool.ruff.lint]
+# Enable pycodestyle (`E`), Pyflakes (`F`), and import sorting (`I`)
+select = ["I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kblite"]
