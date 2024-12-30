@@ -1,30 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from sqlalchemy import ForeignKey
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    Session,
-    mapped_column,
-    relationship,
-)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from typing_extensions import Self
 
-
-def apply_prefix(uri: str | None, namespace: str | None = None) -> str:
-    if uri is None:
-        return None
-    if namespace and uri.startswith("/"):
-        namespace = namespace.rstrip("/")
-        return f"{namespace}{uri}"
-    return uri
+from kblite.base import get_context_vars
 
 
 class Base(DeclarativeBase):
     pass
+
+
+def apply_prefix(uri: str | None) -> str:
+    _, _, namespace = get_context_vars()
+    if uri is None:
+        return None
+    if namespace and uri.startswith("/"):
+        namespace = namespace.rstrip("/")
+        # namespace must end with a slash
+        if not namespace.endswith("/"):
+            namespace += "/"
+        return f"{namespace}{uri}"
+    return uri
 
 
 class Node(Base):
@@ -42,21 +40,16 @@ class Node(Base):
     term: Mapped[Node | None] = relationship()
 
     @classmethod
-    def from_dict(
-        cls,
-        data: dict,
-        session: Session | None = None,
-        commit: bool = True,
-        namespace: str | None = None,
-    ) -> Self:
-        id_ = apply_prefix(data["@id"], namespace=namespace)
+    def from_dict(cls, data: dict) -> Self:
+        session, commit, _ = get_context_vars()
+        id_ = apply_prefix(data["@id"])
         if session:
             instance = session.get(cls, id_)
             if instance:
                 return instance
         term_id = data.get("term")
         if term_id:
-            term_id = apply_prefix(term_id, namespace=namespace)
+            term_id = apply_prefix(term_id)
         instance = cls(
             id=id_,
             label=data["label"],
@@ -73,6 +66,8 @@ class Node(Base):
             session.add(instance)
             if commit:
                 session.commit()
+            else:
+                session.flush()
             return instance
         except IntegrityError as e:
             session.rollback()
@@ -96,14 +91,9 @@ class Relation(Base):
     symmetric: Mapped[bool] = mapped_column(default=False)
 
     @classmethod
-    def from_dict(
-        cls,
-        data: dict,
-        session: Session | None = None,
-        commit: bool = True,
-        namespace: str | None = None,
-    ) -> Self:
-        id_ = apply_prefix(data["@id"], namespace=namespace)
+    def from_dict(cls, data: dict) -> Self:
+        session, commit, _ = get_context_vars()
+        id_ = apply_prefix(data["@id"])
         if session:
             instance = session.get(cls, id_)
             if instance:
@@ -119,6 +109,8 @@ class Relation(Base):
             session.add(instance)
             if commit:
                 session.commit()
+            else:
+                session.flush()
             return instance
         except IntegrityError as e:
             session.rollback()
@@ -144,14 +136,9 @@ class Source(Base):
     edge_id: Mapped[str] = mapped_column(ForeignKey("edge.id"))
 
     @classmethod
-    def from_dict(
-        cls,
-        data: dict,
-        session: Session | None = None,
-        commit: bool = True,
-        namespace: str | None = None,
-    ) -> Self:
-        id_ = apply_prefix(data["@id"], namespace=namespace)
+    def from_dict(cls, data: dict) -> Self:
+        session, commit, _ = get_context_vars()
+        id_ = apply_prefix(data["@id"])
         edge_id = data["edge_id"]  # assume this is already prefixed
         if session:
             instance = session.get(cls, id_)
@@ -162,7 +149,7 @@ class Source(Base):
             if key not in data:
                 continue
             value = data[key]
-            kwargs[key] = apply_prefix(value, namespace=namespace)
+            kwargs[key] = apply_prefix(value)
         instance = cls(id=id_, edge_id=edge_id, **kwargs)
         if not session:
             return instance
@@ -170,6 +157,8 @@ class Source(Base):
             session.add(instance)
             if commit:
                 session.commit()
+            else:
+                session.flush()
             return instance
         except IntegrityError as e:
             session.rollback()
@@ -203,37 +192,20 @@ class Edge(Base):
     sources: Mapped[list[Source]] = relationship()
 
     @classmethod
-    def from_dict(
-        cls,
-        data: dict,
-        session: Session | None = None,
-        commit: bool = True,
-        namespace: str | None = None,
-    ) -> Self:
-        id_ = apply_prefix(data["@id"], namespace=namespace)
+    def from_dict(cls, data: dict) -> Self:
+        session, commit, _ = get_context_vars()
+        id_ = apply_prefix(data["@id"])
         if session:
             instance = session.get(cls, id_)
             if instance:
                 return instance
-        rel = Relation.from_dict(
-            data["rel"], session=session, commit=commit, namespace=namespace
-        )
-        start = Node.from_dict(
-            data["start"], session=session, commit=commit, namespace=namespace
-        )
-        end = Node.from_dict(
-            data["end"], session=session, commit=commit, namespace=namespace
-        )
+        rel = Relation.from_dict(data["rel"])
+        start = Node.from_dict(data["start"])
+        end = Node.from_dict(data["end"])
         sources = [
-            Source.from_dict(
-                {"edge_id": id_, **source},
-                session=session,
-                commit=commit,
-                namespace=namespace,
-            )
-            for source in data["sources"]
+            Source.from_dict({"edge_id": id_, **source}) for source in data["sources"]
         ]
-        dataset = apply_prefix(data.get("dataset"), namespace=namespace)
+        dataset = apply_prefix(data.get("dataset"))
         instance = cls(
             id=id_,
             rel=rel,
@@ -245,12 +217,14 @@ class Edge(Base):
             dataset=dataset,
             surface_text=data.get("surfaceText", data.get("surface_text")),
         )
-        if not session:
+        if session is None:
             return instance
         try:
             session.add(instance)
             if commit:
                 session.commit()
+            else:
+                session.flush()
             return instance
         except IntegrityError as e:
             session.rollback()
@@ -264,36 +238,3 @@ class Edge(Base):
 
     def __repr__(self) -> str:
         return f"Edge(id='{self.id}', start='{self.start_id}', rel='{self.rel_id}', end='{self.end_id}')"
-
-
-@dataclass
-class Feature:
-    rel: Relation | None = None
-    start: Node | None = None
-    end: Node | None = None
-    node: Node | None = None
-
-
-@dataclass
-class RelatedNode:
-    id: str
-    weight: float
-
-
-@dataclass
-class PartialCollectionView:
-    paginatedProperty: str
-    firstPage: str
-    nextPage: str | None = None
-    previousPage: str | None = None
-
-
-@dataclass
-class Query:
-    id: str
-    edges: list[Edge] | None = None
-    features: list[Feature] | None = None
-    related: list[RelatedNode] | None = None
-    view: PartialCollectionView | None = None
-    value: float | None = None
-    license: str | None = None

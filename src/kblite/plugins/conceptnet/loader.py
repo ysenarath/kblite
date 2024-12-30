@@ -16,6 +16,7 @@ from kblite.loader import KnowledgeBaseLoader, KnowledgeBaseLoaderConfig
 from kblite.plugins.conceptnet import csv
 
 __all__ = [
+    "ConceptNetLoaderConfig",
     "ConceptNetLoader",
 ]
 
@@ -72,7 +73,9 @@ class ConceptNetLoader(KnowledgeBaseLoader):
     def __post_init__(self) -> None:
         self._download_url = self.config.download_urls[self.config.version]
         fn = self._download_url.split("/")[-1]
-        self.csv_gz_path = Path(kblite_config.resources_dir / "conceptnet" / fn)
+        self.csv_gz_path = (
+            Path(kblite_config.resources_dir) / self.config.identifier / "loader" / fn
+        )
         self.jsonl_gz_path = self.csv_gz_path.with_suffix(".jsonl.gz")
         super().__post_init__()
 
