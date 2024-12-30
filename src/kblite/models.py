@@ -18,9 +18,6 @@ def apply_prefix(uri: str | None) -> str:
         return None
     if namespace and uri.startswith("/"):
         namespace = namespace.rstrip("/")
-        # namespace must end with a slash
-        if not namespace.endswith("/"):
-            namespace += "/"
         return f"{namespace}{uri}"
     return uri
 
