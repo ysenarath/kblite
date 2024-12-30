@@ -1,6 +1,6 @@
 import orjson
 
-from .uri import conjunction_uri, to_json_ld
+from kblite.plugins.conceptnet.uri import conjunction_uri, to_json_ld
 
 __all__ = [
     "read_line",

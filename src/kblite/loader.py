@@ -5,30 +5,26 @@ from typing import Any, ClassVar, Dict, Iterable, Optional
 from nightjar import AutoModule, BaseConfig, BaseModule
 
 __all__ = [
-    "AutoKnowledgeLoader",
-    "KnowledgeLoader",
-    "KnowledgeLoaderConfig",
+    "KnowledgeBaseLoaderConfig",
+    "AutoKnowledgeBaseLoader",
+    "KnowledgeBaseLoader",
 ]
 
 
-class KnowledgeLoaderConfig(BaseConfig, dispatch="identifier"):
+class KnowledgeBaseLoaderConfig(BaseConfig, dispatch="identifier"):
     identifier: ClassVar[str]
-    verbose: bool = 1
-    namespace: Optional[str] = None
+    namespace: str = "https://octology.github.io/"
     version: Optional[str] = None
+    verbose: bool | int = 1
 
 
-class AutoKnowledgeLoader(AutoModule):
-    def __new__(cls, config: KnowledgeLoaderConfig) -> KnowledgeLoader:
+class AutoKnowledgeBaseLoader(AutoModule):
+    def __new__(cls, config: KnowledgeBaseLoaderConfig) -> KnowledgeBaseLoader:
         return super().__new__(cls, config)
 
 
-class KnowledgeLoader(BaseModule):
-    config: KnowledgeLoaderConfig
-
-    def download(self) -> None:
-        """Download resource."""
-        raise NotImplementedError
+class KnowledgeBaseLoader(BaseModule):
+    config: KnowledgeBaseLoaderConfig
 
     def iterrows(self) -> Iterable[Dict[str, Any]]:
         """Iterate over edges."""

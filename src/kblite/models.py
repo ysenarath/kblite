@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 from sqlalchemy import ForeignKey
 from sqlalchemy.exc import IntegrityError
@@ -15,7 +14,7 @@ from sqlalchemy.orm import (
 from typing_extensions import Self
 
 
-def apply_prefix(uri: Optional[str], namespace: Optional[str] = None) -> str:
+def apply_prefix(uri: str | None, namespace: str | None = None) -> str:
     if uri is None:
         return None
     if namespace and uri.startswith("/"):
@@ -32,28 +31,29 @@ class Node(Base):
     __tablename__ = "node"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    label: Mapped[Optional[str]] = mapped_column(nullable=True)
-    language: Mapped[Optional[str]]
-    sense_label: Mapped[Optional[str]]
-    term_id: Mapped[Optional[str]] = mapped_column(ForeignKey("node.id"))
-    site: Mapped[Optional[str]]
-    path: Mapped[Optional[str]]
-    site_available: Mapped[Optional[bool]]
+    label: Mapped[str | None] = mapped_column(nullable=True)
+    language: Mapped[str | None]
+    sense_label: Mapped[str | None]
+    term_id: Mapped[str | None] = mapped_column(ForeignKey("node.id"))
+    site: Mapped[str | None]
+    path: Mapped[str | None]
+    site_available: Mapped[bool | None]
 
-    term: Mapped[Optional["Node"]] = relationship()
+    term: Mapped[Node | None] = relationship()
 
     @classmethod
     def from_dict(
         cls,
         data: dict,
-        session: Optional[Session] = None,
+        session: Session | None = None,
         commit: bool = True,
-        namespace: Optional[str] = None,
+        namespace: str | None = None,
     ) -> Self:
         id_ = apply_prefix(data["@id"], namespace=namespace)
-        instance = session.get(cls, id_)
-        if instance:
-            return instance
+        if session:
+            instance = session.get(cls, id_)
+            if instance:
+                return instance
         term_id = data.get("term")
         if term_id:
             term_id = apply_prefix(term_id, namespace=namespace)
@@ -67,6 +67,8 @@ class Node(Base):
             path=data.get("path"),
             site_available=data.get("site_available"),
         )
+        if not session:
+            return instance
         try:
             session.add(instance)
             if commit:
@@ -97,19 +99,22 @@ class Relation(Base):
     def from_dict(
         cls,
         data: dict,
-        session: Optional[Session] = None,
+        session: Session | None = None,
         commit: bool = True,
-        namespace: Optional[str] = None,
+        namespace: str | None = None,
     ) -> Self:
         id_ = apply_prefix(data["@id"], namespace=namespace)
-        instance = session.get(cls, id_)
-        if instance:
-            return instance
+        if session:
+            instance = session.get(cls, id_)
+            if instance:
+                return instance
         instance = cls(
             id=id_,
             label=data["label"],
             symmetric=data.get("symmetric", False),
         )
+        if not session:
+            return instance
         try:
             session.add(instance)
             if commit:
@@ -133,24 +138,25 @@ class Source(Base):
     __tablename__ = "source"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    contributor: Mapped[Optional[str]]
-    process: Mapped[Optional[str]]
-    activity: Mapped[Optional[str]]
+    contributor: Mapped[str | None]
+    process: Mapped[str | None]
+    activity: Mapped[str | None]
     edge_id: Mapped[str] = mapped_column(ForeignKey("edge.id"))
 
     @classmethod
     def from_dict(
         cls,
         data: dict,
-        session: Optional[Session] = None,
+        session: Session | None = None,
         commit: bool = True,
-        namespace: Optional[str] = None,
+        namespace: str | None = None,
     ) -> Self:
         id_ = apply_prefix(data["@id"], namespace=namespace)
         edge_id = data["edge_id"]  # assume this is already prefixed
-        instance = session.get(cls, id_)
-        if instance:
-            return instance
+        if session:
+            instance = session.get(cls, id_)
+            if instance:
+                return instance
         kwargs = {}
         for key in ("contributor", "process", "activity"):
             if key not in data:
@@ -158,6 +164,8 @@ class Source(Base):
             value = data[key]
             kwargs[key] = apply_prefix(value, namespace=namespace)
         instance = cls(id=id_, edge_id=edge_id, **kwargs)
+        if not session:
+            return instance
         try:
             session.add(instance)
             if commit:
@@ -184,28 +192,29 @@ class Edge(Base):
     rel_id: Mapped[str] = mapped_column(ForeignKey("relation.id"), index=True)
     start_id: Mapped[str] = mapped_column(ForeignKey("node.id"), index=True)
     end_id: Mapped[str] = mapped_column(ForeignKey("node.id"), index=True)
-    license: Mapped[Optional[str]]
+    license: Mapped[str | None]
     weight: Mapped[float] = mapped_column(default=1.0)
-    dataset: Mapped[Optional[str]]
-    surface_text: Mapped[Optional[str]]
+    dataset: Mapped[str | None]
+    surface_text: Mapped[str | None]
 
     rel: Mapped[Relation] = relationship()
     start: Mapped[Node] = relationship(foreign_keys=[start_id])
     end: Mapped[Node] = relationship(foreign_keys=[end_id])
-    sources: Mapped[List[Source]] = relationship()
+    sources: Mapped[list[Source]] = relationship()
 
     @classmethod
     def from_dict(
         cls,
         data: dict,
-        session: Optional[Session] = None,
+        session: Session | None = None,
         commit: bool = True,
-        namespace: Optional[str] = None,
+        namespace: str | None = None,
     ) -> Self:
         id_ = apply_prefix(data["@id"], namespace=namespace)
-        instance = session.get(cls, id_)
-        if instance:
-            return instance
+        if session:
+            instance = session.get(cls, id_)
+            if instance:
+                return instance
         rel = Relation.from_dict(
             data["rel"], session=session, commit=commit, namespace=namespace
         )
@@ -236,6 +245,8 @@ class Edge(Base):
             dataset=dataset,
             surface_text=data.get("surfaceText", data.get("surface_text")),
         )
+        if not session:
+            return instance
         try:
             session.add(instance)
             if commit:
@@ -257,10 +268,10 @@ class Edge(Base):
 
 @dataclass
 class Feature:
-    rel: Optional[Relation] = None
-    start: Optional[Node] = None
-    end: Optional[Node] = None
-    node: Optional[Node] = None
+    rel: Relation | None = None
+    start: Node | None = None
+    end: Node | None = None
+    node: Node | None = None
 
 
 @dataclass
@@ -273,16 +284,16 @@ class RelatedNode:
 class PartialCollectionView:
     paginatedProperty: str
     firstPage: str
-    nextPage: Optional[str] = None
-    previousPage: Optional[str] = None
+    nextPage: str | None = None
+    previousPage: str | None = None
 
 
 @dataclass
 class Query:
     id: str
-    edges: Optional[List[Edge]] = None
-    features: Optional[List[Feature]] = None
-    related: Optional[List[RelatedNode]] = None
-    view: Optional[PartialCollectionView] = None
-    value: Optional[float] = None
-    license: Optional[str] = None
+    edges: list[Edge] | None = None
+    features: list[Feature] | None = None
+    related: list[RelatedNode] | None = None
+    view: PartialCollectionView | None = None
+    value: float | None = None
+    license: str | None = None
