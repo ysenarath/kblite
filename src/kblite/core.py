@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import json
+import functools
 import logging
-from collections import defaultdict
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Generator, List
+from typing import Generator, List, Optional, Tuple
 
-import orjson
+import marisa_trie as mt
+import tqdm
 from nightjar import BaseConfig, BaseModule
-from sqlalchemy import create_engine
+from sqlalchemy import alias, create_engine
 from sqlalchemy.orm import Session
 
 from kblite.base import SessionContext, var
 from kblite.config import config as kblite_config
 from kblite.loader import AutoKnowledgeBaseLoader, KnowledgeBaseLoaderConfig
-from kblite.models import Base, Edge, Node
+from kblite.models import Base, Edge, Node, Relation
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,6 @@ class KnowledgeBase(BaseModule):
         url = f"sqlite:///{path}"
         self.bind = create_engine(url)
         self.create_all()
-        self.vocab_path = resources_dir / identifier / f"vocab-v{version}.json"
 
     def create_all(self):
         Base.metadata.create_all(self.bind)
@@ -69,21 +69,202 @@ class KnowledgeBase(BaseModule):
             yield session
             var.reset(token)
 
-    def get_vocab(self, force: bool = False) -> Dict[str, List[str]]:
-        if self.vocab_path.exists():
-            if force:
-                self.vocab_path.unlink()
+    def rebuild(self):
+        self.vocab.rebuild()
+        self.triplets.rebuild()
+
+    @property
+    def vocab(self) -> Vocab:
+        if getattr(self, "_vocab", None) is None:
+            self._vocab = Vocab(self)
+        return self._vocab
+
+    @property
+    def triplets(self) -> Triplets:
+        if getattr(self, "_triplets", None) is None:
+            self._triplets = Triplets(self)
+        return self._triplets
+
+
+class Vocab:
+    def __init__(self, kb: KnowledgeBase):
+        self._get_kb: KnowledgeBase = weakref.ref(kb)
+        self._trie: Optional[mt.BytesTrie] = None
+
+    @property
+    def kb(self) -> KnowledgeBase:
+        return self._get_kb()
+
+    @property
+    def trie(self) -> mt.BytesTrie:
+        if self._trie is None:
+            self._load_trie()
+        return self._trie
+
+    def _get_trie_path(self) -> Path:
+        resources_dir = Path(kblite_config.resources_dir)
+        identifier = self.kb.config.loader.identifier
+        version = self.kb.config.loader.version
+        return resources_dir / identifier / f"vocab-v{version}.marisa"
+
+    def _load_trie(self, force: bool = False) -> None:
+        trie_path = self._get_trie_path()
+        if not force and trie_path.exists():
+            self._trie = mt.BytesTrie().mmap(str(trie_path))
+        else:
+            self._build_trie()
+
+    def _iter_from_kb(self) -> Generator[Tuple[str, bytes], None, None]:
+        with self.kb.session() as session:
+            nodes = session.query(Node.label, Node.id).distinct()
+            pbar = tqdm.tqdm(
+                nodes.yield_per(1000), total=nodes.count(), desc="Building trie"
+            )
+            for label, node_id in pbar:
+                label = label.strip().lower()
+                if not label:
+                    continue
+                yield label, node_id.encode()
+
+    def _build_trie(self) -> None:
+        """Build trie from nodes in the database"""
+        logger.info("Building vocabulary trie...")
+        trie_path = self._get_trie_path()
+        if trie_path.exists():
+            trie_path.unlink()
+        self._trie = mt.BytesTrie(self._iter_from_kb())
+        self._trie.save(str(trie_path))
+        logger.info("Vocabulary trie built and saved")
+
+    @functools.lru_cache(maxsize=10000)
+    def _getitem_cached(self, key: str) -> List[str]:
+        """Get all node IDs for a given label"""
+        values = self.trie[key.strip().lower()]
+        return list(map(bytes.decode, values))
+
+    def __getitem__(self, key: str) -> List[str]:
+        try:
+            return self._getitem_cached(key)
+        except Exception:
+            raise KeyError(key)
+
+    def __contains__(self, label: str) -> bool:
+        return label in self.trie
+
+    def __len__(self) -> int:
+        return len(self.trie)
+
+    def rebuild(self) -> None:
+        """Force rebuild the trie"""
+        if self._trie:
+            self._trie = None
+        self._load_trie(force=True)
+        self._getitem_cached.cache_clear()  # clear the cache
+
+
+class Triplets:
+    def __init__(self, kb: KnowledgeBase):
+        self._get_kb: KnowledgeBase = weakref.ref(kb)
+        self._trie: Optional[mt.BytesTrie] = None
+
+    @property
+    def kb(self) -> KnowledgeBase:
+        return self._get_kb()
+
+    @property
+    def trie(self) -> mt.BytesTrie:
+        if self._trie is None:
+            self._load_trie()
+        return self._trie
+
+    def _get_trie_path(self) -> Path:
+        resources_dir = Path(kblite_config.resources_dir)
+        identifier = self.kb.config.loader.identifier
+        version = self.kb.config.loader.version
+        return resources_dir / identifier / f"triplets-v{version}.marisa"
+
+    def _load_trie(self, force: bool = False) -> None:
+        trie_path = self._get_trie_path()
+        if not force and trie_path.exists():
+            self._trie = mt.BytesTrie().mmap(str(trie_path))
+        else:
+            self._build_trie()
+
+    def _build_trie(self) -> None:
+        """Build trie from nodes in the database"""
+        logger.info("Building triplets trie...")
+        trie_path = self._get_trie_path()
+        if trie_path.exists():
+            trie_path.unlink()
+        self._trie = mt.BytesTrie(self._iter_from_kb())
+        self._trie.save(str(trie_path))
+        logger.info("Triplets trie built and saved")
+
+    def _iter_from_kb(self) -> Generator[Tuple[str, bytes], None, None]:
+        with self.kb.session() as session:
+            start_node = alias(Node, "start_node")
+            end_node = alias(Node, "end_node")
+            edges = (
+                session.query(
+                    *[
+                        c
+                        for c in (
+                            start_node.c.label,
+                            Relation.label,
+                            end_node.c.label,
+                            Edge.id,
+                        )
+                    ]
+                )
+                .select_from(Edge)
+                .join(start_node, Edge.start_id == start_node.c.id)
+                .join(Relation, Edge.rel_id == Relation.id)
+                .join(end_node, Edge.end_id == end_node.c.id)
+            )
+            edges = edges.distinct()
+            pbar = tqdm.tqdm(
+                edges.yield_per(1000), total=edges.count(), desc="Building trie"
+            )
+            for start, rel, end, id in pbar:
+                start = start.strip().lower().replace("\t", " ")
+                end = end.strip().lower().replace("\t", " ")
+                if not start or not rel or not end:
+                    continue
+                yield f"spo\t{start}\t{rel}\t{end}", str(id).encode()
+                yield f"ops\t{end}\t{rel}\t{start}", str(id).encode()
+
+    def rebuild(self) -> None:
+        """Force rebuild the trie"""
+        if self._trie:
+            self._trie = None
+        self._load_trie(force=True)
+        self.find.cache_clear()  # clear the cache
+
+    @functools.lru_cache(maxsize=10000)
+    def find(self, subj: Optional[str] = None, rel: Optional[str] = None) -> List[str]:
+        """Find edge IDs for a given triplet"""
+        if subj:
+            subj = subj.strip().lower().replace("\t", " ")
+            if rel:
+                return self.parse(self.trie.keys(f"spo\t{subj}\t{rel}\t"))
+            return self.parse(self.trie.keys(f"spo\t{subj}\t"))
+        return []
+
+    def camel_to_natural(self, text: str) -> str:
+        if not text:
+            return text
+        result = text[0]
+        for char in text[1:]:
+            if char.isupper():
+                result += " " + char
             else:
-                with open(self.vocab_path, "r") as fp:
-                    return orjson.loads(fp.read())
-        vocab = defaultdict(set)
-        with self.session() as session:
-            results = session.query(Node.label, Node.id).distinct().all()
-            for label, id in results:
-                vocab[label].add(id)
-        # convert sets to lists
-        vocab = {label: list(ids) for label, ids in vocab.items()}
-        # write to file (json)
-        with open(self.vocab_path, "w") as fp:
-            json.dump(vocab, fp)
-        return vocab
+                result += char
+        return result.lower()
+
+    def parse(self, keys: List[str]) -> List[Tuple[str, str, str]]:
+        return_ = []
+        for key in keys:
+            _, start, rel, end = key.split("\t")
+            rel = self.camel_to_natural(rel)
+            return_.append((start, rel, end))
+        return return_
