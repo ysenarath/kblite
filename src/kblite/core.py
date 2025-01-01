@@ -6,17 +6,17 @@ import logging
 import weakref
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Generator, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Generator, Iterable, List, Mapping, Optional, Tuple, cast
 
 import marisa_trie as mt
 import numpy as np
 import tqdm
 from nightjar import BaseConfig, BaseModule
-from rapidfuzz import fuzz, process, utils
+from rapidfuzz import fuzz, process
 from sqlalchemy import alias, create_engine
 from sqlalchemy.orm import Session
 
-from kblite.base import SessionContext, apply_prefix, var
+from kblite.base import SessionContext, var
 from kblite.config import config as kblite_config
 from kblite.loader import (
     AutoEmbeddingLoader,
@@ -101,6 +101,7 @@ class Vocab:
     def __init__(self, kb: KnowledgeBase):
         self._get_kb: KnowledgeBase = weakref.ref(kb)
         self._trie: Optional[mt.BytesTrie] = None
+        self.lang: str = "en"
 
     @property
     def kb(self) -> KnowledgeBase:
@@ -116,7 +117,7 @@ class Vocab:
         resources_dir = Path(kblite_config.resources_dir)
         identifier = self.kb.config.loader.identifier
         version = self.kb.config.loader.version
-        return resources_dir / identifier / f"vocab-v{version}.marisa"
+        return resources_dir / identifier / f"vocab-{self.lang}-v{version}.marisa"
 
     def _load_trie(self, force: bool = False) -> None:
         trie_path = self._get_trie_path()
@@ -128,6 +129,10 @@ class Vocab:
     def _iter_from_kb(self) -> Generator[Tuple[str, bytes], None, None]:
         with self.kb.session() as session:
             nodes = session.query(Node.label, Node.id).distinct()
+            if self.lang:
+                nodes = nodes.filter(
+                    Node.language == self.lang,
+                )
             pbar = tqdm.tqdm(
                 nodes.yield_per(1000), total=nodes.count(), desc="Building trie"
             )
@@ -201,7 +206,7 @@ class Vocab:
         results = process.extract(
             text,
             self._choices,
-            scorer=fuzz.WRatio,
+            scorer=fuzz.QRatio,
             limit=limit,
         )
         return results
@@ -211,6 +216,7 @@ class Triplets:
     def __init__(self, kb: KnowledgeBase):
         self._get_kb: KnowledgeBase = weakref.ref(kb)
         self._trie: Optional[mt.BytesTrie] = None
+        self.lang = "en"
 
     @property
     def kb(self) -> KnowledgeBase:
@@ -226,7 +232,7 @@ class Triplets:
         resources_dir = Path(kblite_config.resources_dir)
         identifier = self.kb.config.loader.identifier
         version = self.kb.config.loader.version
-        return resources_dir / identifier / f"triplets-v{version}.marisa"
+        return resources_dir / identifier / f"triplets-{self.lang}-v{version}.marisa"
 
     def _load_trie(self, force: bool = False) -> None:
         trie_path = self._get_trie_path()
@@ -266,6 +272,11 @@ class Triplets:
                 .join(Relation, Edge.rel_id == Relation.id)
                 .join(end_node, Edge.end_id == end_node.c.id)
             )
+            if self.lang:
+                edges = edges.filter(
+                    cast(Node, start_node.c).language == self.lang,
+                    cast(Node, end_node.c).language == self.lang,
+                )
             edges = edges.distinct()
             pbar = tqdm.tqdm(
                 edges.yield_per(1000), total=edges.count(), desc="Building trie"
@@ -363,11 +374,13 @@ class Embedding(Mapping):
         if not isinstance(config, EmbeddingLoaderConfig):
             config = EmbeddingLoaderConfig.from_dict(config)
         cache_path = (
-            kblite_config.resources_dir
+            Path(kblite_config.resources_dir)
             / config.identifier
             / "data"
             / f"vectors-{config.version}.data"
         )
+        # create embedding if not exists
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             embeddings = Embedding.load(cache_path)
         except FileNotFoundError:
