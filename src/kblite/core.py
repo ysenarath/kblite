@@ -6,18 +6,24 @@ import logging
 import weakref
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Generator, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Generator, Iterable, List, Mapping, Optional, Tuple
 
 import marisa_trie as mt
 import numpy as np
 import tqdm
 from nightjar import BaseConfig, BaseModule
+from rapidfuzz import fuzz, process, utils
 from sqlalchemy import alias, create_engine
 from sqlalchemy.orm import Session
 
 from kblite.base import SessionContext, apply_prefix, var
 from kblite.config import config as kblite_config
-from kblite.loader import AutoKnowledgeBaseLoader, KnowledgeBaseLoaderConfig
+from kblite.loader import (
+    AutoEmbeddingLoader,
+    AutoKnowledgeBaseLoader,
+    EmbeddingLoaderConfig,
+    KnowledgeBaseLoaderConfig,
+)
 from kblite.models import Base, Edge, Node, Relation
 
 logger = logging.getLogger(__name__)
@@ -179,6 +185,27 @@ class Vocab:
         prefix = prefix.strip().lower()
         return self.trie.keys(prefix)
 
+    def find(self, text: str, fuzzy: bool | dict = False) -> List[str]:
+        """Find node IDs for a given label"""
+        if fuzzy is not False:
+            if isinstance(fuzzy, dict):
+                return self.find_fuzzy(text, **fuzzy)
+            return self.find_fuzzy(text)
+        return self._getitem_cached(text)
+
+    def find_fuzzy(self, text: str, limit: int = 5) -> List[str]:
+        """Find node IDs for a given label using fuzzy matching"""
+        text = text.strip().lower()
+        if not hasattr(self, "_choices"):
+            self._choices = set(self.trie.keys())
+        results = process.extract(
+            text,
+            self._choices,
+            scorer=fuzz.WRatio,
+            limit=limit,
+        )
+        return results
+
 
 class Triplets:
     def __init__(self, kb: KnowledgeBase):
@@ -288,7 +315,7 @@ class Triplets:
         return return_
 
 
-class EntityEmbedding(Mapping):
+class Embedding(Mapping):
     def __init__(self, entity2id: Dict[str, int], vectors: np.ndarray):
         self.entity2id = entity2id
         self.vectors = vectors
@@ -303,10 +330,10 @@ class EntityEmbedding(Mapping):
         return len(self.entity2id)
 
     @classmethod
-    def from_dict(self, entitity_vectors: Dict[str, np.ndarray]) -> EntityEmbedding:
+    def from_dict(self, entitity_vectors: Dict[str, np.ndarray]) -> Embedding:
         entity2id = {entity: i for i, entity in enumerate(entitity_vectors.keys())}
         vectors = np.array(list(entitity_vectors.values()))
-        return EntityEmbedding(entity2id, vectors)
+        return Embedding(entity2id, vectors)
 
     def dump(self, path: Path | str) -> None:
         path = Path(path)
@@ -315,7 +342,7 @@ class EntityEmbedding(Mapping):
             json.dump(self.entity2id, f)
 
     @classmethod
-    def load(cls, path: Path | str) -> EntityEmbedding:
+    def load(cls, path: Path | str) -> Embedding:
         path = Path(path)
         with open(path.with_suffix(".entity2id.json")) as f:
             entity2id = json.load(f)
@@ -327,3 +354,24 @@ class EntityEmbedding(Mapping):
             mode="r",
         )
         return cls(entity2id, vectors)
+
+    def from_config(
+        cls, config: EmbeddingLoaderConfig | Mapping[str, Any] | None = None
+    ) -> Embedding:
+        if config is None:
+            config = {"identifier": "numberbatch"}
+        if not isinstance(config, EmbeddingLoaderConfig):
+            config = EmbeddingLoaderConfig.from_dict(config)
+        cache_path = (
+            kblite_config.resources_dir
+            / config.identifier
+            / "data"
+            / f"vectors-{config.version}.data"
+        )
+        try:
+            embeddings = Embedding.load(cache_path)
+        except FileNotFoundError:
+            mapping = AutoEmbeddingLoader(config).load()
+            embeddings = Embedding.from_dict(mapping)
+            embeddings.dump(cache_path)
+        return embeddings

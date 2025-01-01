@@ -1,5 +1,5 @@
 from kblite import config, logging
-from kblite.core import EntityEmbedding, KnowledgeBase, KnowledgeBaseConfig
+from kblite.core import Embedding, KnowledgeBase, KnowledgeBaseConfig
 from kblite.loader import AutoKnowledgeBaseLoader, KnowledgeBaseLoaderConfig
 from kblite.plugins import *
 
@@ -15,7 +15,7 @@ __all__ = [
     "Edge",
     "AutoKnowledgeBaseLoader",
     "KnowledgeBaseLoaderConfig",
-    "EntityEmbedding",
+    "Embedding",
 ]
 
 logger = logging.get_logger(__name__)
