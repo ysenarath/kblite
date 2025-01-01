@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import ForeignKey
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -7,9 +9,7 @@ from typing_extensions import Self
 
 from kblite.base import get_context_vars
 
-
-class Base(DeclarativeBase):
-    pass
+logger = logging.getLogger(__name__)
 
 
 def apply_prefix(uri: str | None) -> str:
@@ -20,6 +20,10 @@ def apply_prefix(uri: str | None) -> str:
         namespace = namespace.rstrip("/")
         return f"{namespace}{uri}"
     return uri
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class Node(Base):

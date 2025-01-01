@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import weakref
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, List, Optional, Tuple
+from typing import Dict, Generator, Iterable, List, Mapping, Optional, Tuple
 
 import marisa_trie as mt
+import numpy as np
 import tqdm
 from nightjar import BaseConfig, BaseModule
 from sqlalchemy import alias, create_engine
 from sqlalchemy.orm import Session
 
-from kblite.base import SessionContext, var
+from kblite.base import SessionContext, apply_prefix, var
 from kblite.config import config as kblite_config
 from kblite.loader import AutoKnowledgeBaseLoader, KnowledgeBaseLoaderConfig
 from kblite.models import Base, Edge, Node, Relation
@@ -63,6 +65,9 @@ class KnowledgeBase(BaseModule):
 
     @contextmanager
     def session(self, partial_commit: bool = False) -> Generator[Session, None, None]:
+        current = var.get()
+        if current:
+            raise RuntimeError("session already in progress")
         with Session(self.bind) as session:
             ctx = SessionContext(session, partial_commit, self.config.loader.namespace)
             token = var.set(ctx)
@@ -142,6 +147,13 @@ class Vocab:
         values = self.trie[key.strip().lower()]
         return list(map(bytes.decode, values))
 
+    def keys(self) -> List[str]:
+        return self.trie.keys()
+
+    def items(self) -> Generator[Tuple[str, List[str]], None, None]:
+        for key in self.trie.keys():
+            yield key, self._getitem_cached(key)
+
     def __getitem__(self, key: str) -> List[str]:
         try:
             return self._getitem_cached(key)
@@ -160,6 +172,12 @@ class Vocab:
             self._trie = None
         self._load_trie(force=True)
         self._getitem_cached.cache_clear()  # clear the cache
+
+    @functools.lru_cache(maxsize=10000)
+    def startswith(self, prefix: str) -> List[str]:
+        """Get all node IDs for a given prefix"""
+        prefix = prefix.strip().lower()
+        return self.trie.keys(prefix)
 
 
 class Triplets:
@@ -268,3 +286,44 @@ class Triplets:
             rel = self.camel_to_natural(rel)
             return_.append((start, rel, end))
         return return_
+
+
+class EntityEmbedding(Mapping):
+    def __init__(self, entity2id: Dict[str, int], vectors: np.ndarray):
+        self.entity2id = entity2id
+        self.vectors = vectors
+
+    def __getitem__(self, key: str) -> np.ndarray:
+        return self.vectors[self.entity2id[key]]
+
+    def __iter__(self) -> Iterable[str]:
+        return iter(self.entity2id)
+
+    def __len__(self) -> int:
+        return len(self.entity2id)
+
+    @classmethod
+    def from_dict(self, entitity_vectors: Dict[str, np.ndarray]) -> EntityEmbedding:
+        entity2id = {entity: i for i, entity in enumerate(entitity_vectors.keys())}
+        vectors = np.array(list(entitity_vectors.values()))
+        return EntityEmbedding(entity2id, vectors)
+
+    def dump(self, path: Path | str) -> None:
+        path = Path(path)
+        np.save(path.with_suffix(".vectors.npy"), self.vectors)
+        with open(path.with_suffix(".entity2id.json"), "w") as f:
+            json.dump(self.entity2id, f)
+
+    @classmethod
+    def load(cls, path: Path | str) -> EntityEmbedding:
+        path = Path(path)
+        with open(path.with_suffix(".entity2id.json")) as f:
+            entity2id = json.load(f)
+        # vectors = np.load(path.with_suffix(".vectors.npy"))
+        # memory-mapped array
+        vectors = np.memmap(
+            path.with_suffix(".vectors.npy"),
+            dtype=np.float32,
+            mode="r",
+        )
+        return cls(entity2id, vectors)

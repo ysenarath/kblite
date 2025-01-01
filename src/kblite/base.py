@@ -21,3 +21,13 @@ def get_context_vars() -> tuple[Session | None, bool, str]:
     if session_ctx is None:
         return None, False, "http://example.com/"
     return session_ctx.session, session_ctx.partial_commit, session_ctx.namespace
+
+
+def apply_prefix(uri: str | None) -> str:
+    _, _, namespace = get_context_vars()
+    if uri is None:
+        return None
+    if namespace and uri.startswith("/"):
+        namespace = namespace.rstrip("/")
+        return f"{namespace}{uri}"
+    return uri
