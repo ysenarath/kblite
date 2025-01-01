@@ -1,7 +1,12 @@
 from typing import Generator, Set, Tuple
 
+from nltk.corpus import stopwords
+
 from kblite import KnowledgeBase, KnowledgeBaseConfig
 from kblite.flashtext import KeywordProcessor
+
+# Initialize stopwords
+STOP_WORDS = set(stopwords.words("english"))
 
 config = KnowledgeBaseConfig.from_dict(
     {
@@ -14,14 +19,18 @@ config = KnowledgeBaseConfig.from_dict(
 kb = KnowledgeBase(config)
 kp = KeywordProcessor()
 
+# Only add non-stopword keywords
 for key in set(kb.vocab.keys()):
-    kp.add_keyword(key)
+    if key.lower() not in STOP_WORDS:
+        kp.add_keyword(key)
 
 
 def analyze_text(text: str) -> Generator[Tuple[str, int, int, Set[str]], None, None]:
-    # text = "/r/Shit_Chapo_Says is controlled opposition. They ban conservatives and republicans but let Chapos shitpost in the sub with no repercussion. [linebreak]  [linebreak] It's run by a bunch of neolibs and socialists who side more with CTH than centrists but just don't like the flavor of socialism that CTH likes."
     keywords = kp.extract_keywords(text, span_info=True, max_cost=2)
     for term, start, end in keywords:
+        # Double check for stopwords (in case of case sensitivity)
+        if term.lower() in STOP_WORDS or len(term) < 3:
+            continue
         try:
             forms = list(zip(*kb.triplets.find(term, rel="FormOf")))
             if len(forms) == 3:
