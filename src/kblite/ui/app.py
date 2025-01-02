@@ -6,7 +6,7 @@ from pyvis.network import Network
 
 from kblite.analyze import analyze_text
 
-# st.title("KBLite Text Analysis")
+st.title("Text Analysis")
 
 # Sample text options
 samples = {
@@ -31,7 +31,7 @@ text = st.text_area(
 
 if text:
     # Process results
-    results = list(analyze_text(text))
+    results = list(analyze_text(text, max_cost=2))
 
     # Create tabs for different views
     tab1, tab2, tab3 = st.tabs(["Interactive Network", "Term Details", "Text Analysis"])

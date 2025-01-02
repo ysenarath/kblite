@@ -357,12 +357,13 @@ class Embedding(Mapping):
         path = Path(path)
         with open(path.with_suffix(".entity2id.json")) as f:
             entity2id = json.load(f)
-        # vectors = np.load(path.with_suffix(".vectors.npy"))
+        vectors: np.ndarray = np.load(path.with_suffix(".vectors.npy"))
         # memory-mapped array
         vectors = np.memmap(
             path.with_suffix(".vectors.npy"),
             dtype=np.float32,
             mode="r",
+            shape=vectors.shape,
         )
         return cls(entity2id, vectors)
 

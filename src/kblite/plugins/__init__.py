@@ -1,4 +1,5 @@
 from kblite.plugins.conceptnet import ConceptNetLoader, ConceptNetLoaderConfig
+from kblite.plugins.fasttext import FastTextLoader, FastTextLoaderConfig
 from kblite.plugins.numberbatch import NumberbatchLoader, NumberbatchLoaderConfig
 
 __all__ = [
@@ -6,4 +7,6 @@ __all__ = [
     "ConceptNetLoaderConfig",
     "NumberbatchLoader",
     "NumberbatchLoaderConfig",
+    "FastTextLoader",
+    "FastTextLoaderConfig",
 ]

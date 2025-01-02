@@ -1,6 +1,6 @@
+import io
 import os
 import string
-import io
 
 
 class KeywordProcessor(object):

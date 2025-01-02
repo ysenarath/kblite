@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 class NumberbatchLoaderConfig(EmbeddingLoaderConfig):
     identifier: ClassVar[str] = "numberbatch"
     version: str = "19.08"
-    namespace: str = "https://conceptnet.io/"
+    # use http:// since we used it in conceptnet also
+    namespace: str = "http://conceptnet.io/"
 
 
 class NumberbatchLoader(EmbeddingLoader):
