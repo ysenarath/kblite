@@ -6,7 +6,7 @@ from pyvis.network import Network
 
 from kblite.analyze import analyze_text
 
-st.title("KBLite Text Analysis")
+# st.title("KBLite Text Analysis")
 
 # Sample text options
 samples = {
@@ -58,22 +58,19 @@ if text:
 
         # Add nodes and edges
         for term, contexts_set in term_groups.items():
+            print(contexts_set)
             # Add term node
             net.add_node(
                 str(term), str(term), title=str(term), color="#add8e6"
             )  # light blue
 
             # Flatten contexts_set since it's a set of sets
-            all_contexts = {
-                context for contexts in contexts_set for context in contexts
-            }
-            for context in all_contexts:
+            for sub, rel, ent in contexts_set:
                 # Add context node
-                net.add_node(
-                    str(context), str(context), title=str(context), color="#90ee90"
-                )  # light green
-                # Add edge from term to context
-                net.add_edge(str(term), str(context))
+                net.add_node(str(ent), str(ent), title=str(ent), color="#90ee90")
+                net.add_edge(
+                    str(term), str(ent), title=f"{term}-{rel}->{ent}", color="#000000"
+                )
 
         # Generate and save the html file
         html_path = "network.html"
@@ -97,9 +94,7 @@ if text:
             with st.expander(f"📝 {term}"):
                 st.write("Related concepts:")
                 # Flatten contexts_set
-                all_contexts = {
-                    context for contexts in contexts_set for context in contexts
-                }
+                all_contexts = {str(contexts) for contexts in contexts_set}
                 for context in all_contexts:
                     st.write(f"- {context}")
 
