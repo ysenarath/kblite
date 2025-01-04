@@ -61,3 +61,7 @@ class FastTextLoader(EmbeddingLoader):
 
     def load(self) -> Dict[str, np.ndarray]:
         return self.download().read()
+
+    def get_model(self) -> fasttext.FastText:
+        fn = f"{self.config.version}.bin"
+        return fasttext.load_model(f"{self.files_dir / fn}")

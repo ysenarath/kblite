@@ -11,6 +11,7 @@ from typing import Any, Dict, Generator, Iterable, List, Mapping, Optional, Tupl
 import marisa_trie as mt
 import numpy as np
 import tqdm
+from fasttext.FastText import _FastText as FastText
 from nightjar import BaseConfig, BaseModule
 from rapidfuzz import fuzz, process
 from sqlalchemy import alias, create_engine
@@ -325,35 +326,57 @@ class Triplets:
             return_.append((start, rel, end))
         return return_
 
+    def __iter__(self) -> Generator[Tuple[str, str, str], None, None]:
+        for key in self.trie.keys(f"spo\t"):
+            _, start, rel, end = key.split("\t")
+            yield start, rel, end
+
+    def __len__(self) -> int:
+        return len(self.trie.keys("spo\t"))
+
 
 class Embedding(Mapping):
-    def __init__(self, entity2id: Dict[str, int], vectors: np.ndarray):
+    entity2id: Dict[str, int]
+    vectors: np.ndarray
+    model: Optional[FastText]
+
+    def __init__(self, config: EmbeddingLoaderConfig | Mapping[str, Any]):
+        if not isinstance(config, EmbeddingLoaderConfig):
+            config = EmbeddingLoaderConfig.from_dict(config)
+        self.config = config
+        cache_path = (
+            Path(kblite_config.resources_dir)
+            / config.identifier
+            / "data"
+            / f"vectors-{config.version}.data"
+        )
+        # create embedding if not exists
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        loader = AutoEmbeddingLoader(config)
+        try:
+            self._load(cache_path)
+        except FileNotFoundError:
+            mapping = loader.load()
+            self._from_dict(mapping)
+            self._dump(cache_path)
+        try:
+            self.model = loader.get_model()
+        except NotImplementedError:
+            self.model = None
+
+    def _from_dict(self, entitity_vectors: Dict[str, np.ndarray]) -> Embedding:
+        entity2id = {entity: i for i, entity in enumerate(entitity_vectors.keys())}
+        vectors = np.array(list(entitity_vectors.values()))
         self.entity2id = entity2id
         self.vectors = vectors
 
-    def __getitem__(self, key: str) -> np.ndarray:
-        return self.vectors[self.entity2id[key]]
-
-    def __iter__(self) -> Iterable[str]:
-        return iter(self.entity2id)
-
-    def __len__(self) -> int:
-        return len(self.entity2id)
-
-    @classmethod
-    def from_dict(self, entitity_vectors: Dict[str, np.ndarray]) -> Embedding:
-        entity2id = {entity: i for i, entity in enumerate(entitity_vectors.keys())}
-        vectors = np.array(list(entitity_vectors.values()))
-        return Embedding(entity2id, vectors)
-
-    def dump(self, path: Path | str) -> None:
+    def _dump(self, path: Path | str) -> None:
         path = Path(path)
         np.save(path.with_suffix(".vectors.npy"), self.vectors)
         with open(path.with_suffix(".entity2id.json"), "w") as f:
             json.dump(self.entity2id, f)
 
-    @classmethod
-    def load(cls, path: Path | str) -> Embedding:
+    def _load(self, path: Path | str) -> Embedding:
         path = Path(path)
         with open(path.with_suffix(".entity2id.json")) as f:
             entity2id = json.load(f)
@@ -365,27 +388,19 @@ class Embedding(Mapping):
             mode="r",
             shape=vectors.shape,
         )
-        return cls(entity2id, vectors)
+        self.entity2id = entity2id
+        self.vectors = vectors
 
-    def from_config(
-        cls, config: EmbeddingLoaderConfig | Mapping[str, Any] | None = None
-    ) -> Embedding:
-        if config is None:
-            config = {"identifier": "numberbatch"}
-        if not isinstance(config, EmbeddingLoaderConfig):
-            config = EmbeddingLoaderConfig.from_dict(config)
-        cache_path = (
-            Path(kblite_config.resources_dir)
-            / config.identifier
-            / "data"
-            / f"vectors-{config.version}.data"
-        )
-        # create embedding if not exists
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            embeddings = Embedding.load(cache_path)
-        except FileNotFoundError:
-            mapping = AutoEmbeddingLoader(config).load()
-            embeddings = Embedding.from_dict(mapping)
-            embeddings.dump(cache_path)
-        return embeddings
+    def get_word_vector(self, word: str) -> np.ndarray:
+        if self.model:
+            return self.model.get_word_vector(word)
+        return self[word]
+
+    def __getitem__(self, key: str) -> np.ndarray:
+        return self.vectors[self.entity2id[key]]
+
+    def __iter__(self) -> Iterable[str]:
+        return iter(self.entity2id)
+
+    def __len__(self) -> int:
+        return len(self.entity2id)

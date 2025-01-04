@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, Iterable, Optional, Tuple
+from typing import Any, ClassVar, Dict, Iterable, Tuple
 
 from nightjar import AutoModule, BaseConfig, BaseModule
 
@@ -52,4 +52,8 @@ class EmbeddingLoader(BaseModule):
 
     def load(self) -> Dict[str, Any]:
         """Load resource."""
+        raise NotImplementedError
+
+    def get_model(self) -> Any:
+        """Return the model."""
         raise NotImplementedError

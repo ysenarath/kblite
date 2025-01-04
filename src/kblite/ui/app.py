@@ -4,7 +4,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pyvis.network import Network
 
-from kblite.analyze import analyze_text
+from kblite.analyze import analyze_text, get_scores
 
 st.title("Text Analysis")
 
@@ -32,16 +32,24 @@ text = st.text_area(
 if text:
     # Process results
     results = list(analyze_text(text, max_cost=2))
+    results = get_scores(results)
 
     # Create tabs for different views
-    tab1, tab2, tab3 = st.tabs(["Interactive Network", "Term Details", "Text Analysis"])
+    tab1, tab2, tab3, tab4 = st.tabs(
+        [
+            "Interactive Network",
+            "Term Details",
+            "Text Analysis",
+            "Processor",
+        ]
+    )
 
     # Group results by term
     term_groups = {}
-    for term, start, end, contexts in results:
+    for term, start, end, triple, score in results:
         if term not in term_groups:
             term_groups[term] = set()
-        term_groups[term].add(contexts)  # contexts is already a set
+        term_groups[term].add(triple)  # triple is already a set
 
     with tab1:
         st.subheader("Knowledge Network")
@@ -103,10 +111,15 @@ if text:
         # Highlight terms in text
         highlighted_text = text
         # Sort by start position in reverse to avoid index shifting
-        for term, start, end, _ in sorted(results, key=lambda x: x[1], reverse=True):
+        for term, start, end, _, _ in sorted(results, key=lambda x: x[1], reverse=True):
             highlighted_text = (
                 highlighted_text[:start]
                 + f"**{highlighted_text[start:end]}**"
                 + highlighted_text[end:]
             )
         st.markdown(highlighted_text)
+
+    with tab4:
+        st.subheader("Processor")
+        # Display the processor code
+        st.write(results)
