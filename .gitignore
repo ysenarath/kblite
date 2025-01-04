@@ -169,7 +169,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-/resources
-/_scratch
 .DS_Store
+/resources
+/scratch
 /.ruff_cache
