@@ -10,7 +10,7 @@ from kblite.flashtext import KeywordProcessor
 from kblite.lexrank import degree_centrality_scores
 
 # Initialize stopwords
-STOP_WORDS = set(stopwords.words("english"))
+STOPWORDS = set(stopwords.words("english"))
 
 config = KnowledgeBaseConfig.from_dict(
     {
@@ -30,7 +30,7 @@ eb = Embedding(
 )
 
 for key in set(kb.vocab.keys()):
-    if key.lower() in STOP_WORDS or len(key) < 3:
+    if key.lower() in STOPWORDS or len(key) < 3:
         # do not index stopwords or short words
         continue
     kp.add_keyword(key)
@@ -62,7 +62,10 @@ def analyze_text(
             yield (term, start, end, c)
 
 
-def get_scores(triples: List[Tuple[str, int, int, Set[str]]]) -> List[Tuple[str, int]]:
+def get_scores(
+    triples: List[Tuple[str, int, int, Set[str]]],
+    nlargest: int = 2,
+) -> List[Tuple[str, int]]:
     vectors = {}
     vocab = set()
     for term, _, _, (s, v, o) in triples:
@@ -78,7 +81,10 @@ def get_scores(triples: List[Tuple[str, int, int, Set[str]]]) -> List[Tuple[str,
             a, b = vectors[term], vectors[other_term]
             s = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
             similarity_matrix[i, j] = s
-    scores = degree_centrality_scores(similarity_matrix, threshold=0.1)
+    try:
+        scores = degree_centrality_scores(similarity_matrix, threshold=0.1)
+    except ValueError:
+        scores = np.zeros(len(vocab))
     scores = dict(zip(vocab, scores))
     out = []
     for term, start, end, (s, v, o) in triples:
@@ -88,7 +94,7 @@ def get_scores(triples: List[Tuple[str, int, int, Set[str]]]) -> List[Tuple[str,
     out = (
         pd.DataFrame(out, columns=["term", "start", "end", "triple", "score"])
         .groupby("term")
-        .apply(lambda x: x.nlargest(3, "score"))
+        .apply(lambda x: x.nlargest(nlargest, "score"))
         .reset_index(drop=True)
     )
     return [row for row in out.itertuples(index=False)]
